@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"sync"
@@ -9,41 +8,25 @@ import (
 
 	webrtc "github.com/pion/webrtc/v3"
 
+	"github.com/hvaghani221/webrtc/firebase"
 	"github.com/hvaghani221/webrtc/utils"
 )
 
-var (
-	localCandidateFile    = "offer.candidates"
-	localOfferFile        = "offer.sdp"
-	remoteCandidateFile   = "answer.candidates"
-	remoteOfferFile       = "answer.sdp"
-	localDescriptionFile  = "offer.desc"
-	remoteDescriptionFile = "answer.desc"
+const (
+	localCandidateFile    = utils.OfferCandidate
+	localOfferFile        = utils.OfferOffer
+	localDescriptionFile  = utils.OfferDescription
+	remoteCandidateFile   = utils.AnswerCandidate
+	remoteOfferFile       = utils.AnswerOffer
+	remoteDescriptionFile = utils.AnswerDescription
 )
 
-var rootPath string
-
-func init() {
-	flag.StringVar(&rootPath, "rootPath", "./", "Path where the files will be stored")
-	flag.Parse()
-
-	localCandidateFile = rootPath + localCandidateFile
-	localOfferFile = rootPath + localOfferFile
-	remoteCandidateFile = rootPath + remoteCandidateFile
-	remoteOfferFile = rootPath + remoteOfferFile
-	localDescriptionFile = rootPath + localDescriptionFile
-	remoteDescriptionFile = rootPath + remoteDescriptionFile
-
-	os.Remove(localCandidateFile)
-	os.Remove(localOfferFile)
-	os.Remove(remoteCandidateFile)
-	os.Remove(remoteOfferFile)
-	os.Remove(localDescriptionFile)
-	os.Remove(remoteDescriptionFile)
-}
-
 func main() {
+	client := utils.ReturnOrPanic(firebase.Init())
+	defer client.Close()
+
 	var candidateMux sync.Mutex
+
 	pendingCandidates := make([]*webrtc.ICECandidate, 0)
 	finalLocalCandidate := make([]*webrtc.ICECandidate, 0)
 
@@ -110,18 +93,18 @@ func main() {
 	utils.PanicIf(peerConnection.SetLocalDescription(offer))
 
 	fmt.Println("Sent SDP request")
-	utils.PanicIf(utils.WriteOfferTo(localOfferFile, offer))
+	utils.PanicIf(client.ShareOffer(localOfferFile, offer))
 
 	fmt.Println("Received sdp request")
-	sdp := utils.ReturnOrPanic(utils.WaitForOffer(remoteOfferFile))
+	sdp := client.WaitForOffer(remoteOfferFile)
 	// fmt.Println("Setting RemoteDescription sdp")
 	utils.PanicIf(peerConnection.SetRemoteDescription(sdp))
 
 	time.Sleep(time.Millisecond * 100)
 	fmt.Println("Signaling all the pending candidates")
-	utils.PanicIf(utils.WriteCandidatesTo(localCandidateFile, pendingCandidates))
+	utils.PanicIf(client.ShareCandidate(localCandidateFile, pendingCandidates))
 
-	remoteCandidates := utils.ReturnOrPanic(utils.WaitForCandidates(remoteCandidateFile))
+	remoteCandidates := client.WaitForCandidates(remoteCandidateFile)
 	fmt.Println("Received candidates")
 
 	fmt.Println("Adding remote ICE candidates to the peer connection")
@@ -130,9 +113,9 @@ func main() {
 	}
 
 	fmt.Println("Sharing final candidate")
-	utils.PanicIf(utils.WriteCandidatesTo(localDescriptionFile, finalLocalCandidate))
+	utils.PanicIf(client.ShareCandidate(localDescriptionFile, finalLocalCandidate))
 
-	remoteCandidates = utils.ReturnOrPanic(utils.WaitForCandidates(remoteDescriptionFile))
+	remoteCandidates = client.WaitForCandidates(remoteDescriptionFile)
 	for _, rc := range remoteCandidates {
 		utils.PanicIf(peerConnection.AddICECandidate(rc))
 	}

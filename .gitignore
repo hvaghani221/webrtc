@@ -23,3 +23,6 @@ go.work
 # Binaries
 offer/offer
 answer/answer
+
+# Credentials
+*.json
